@@ -89,8 +89,11 @@ int builtin_command(char **argv)
         DIR *dir = Opendir(".");
 
         struct dirent *entry;
-        while((entry = Readdir(dir)==! NULL))
-            printf("%s ", entry->d_name);
+        while((entry = Readdir(dir)) != NULL){
+            if (entry->d_name[0] != '.')
+                printf("%s ", entry->d_name);
+
+        }
         
         printf("\n");
         Closedir(dir);

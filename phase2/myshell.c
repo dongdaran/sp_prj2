@@ -1,5 +1,6 @@
 /* $begin shellmain */
 #include "csapp.h"
+#include "myshell.h"
 #include<errno.h>
 #define MAXARGS   128
 
@@ -29,51 +30,19 @@ int main()
 /* eval - Evaluate a command line */
 void eval(char *cmdline) 
 
-{   int single_quote_cnt = 0;
-    int double_quote_cnt = 0;
-    int bt_cnt = 0;
-    int argc;
-    int single_quote_idx[MAXARGS];
-    int double_quote_idx[MAXARGS];
-    int bt_idx[MAXARGS];
+{   
+    int argc; /*argv 총 명령어수*/
     char *argv[MAXARGS]; /* Argument list execve() */
     char buf[MAXLINE];   /* Holds modified command line */
     int bg;              /* Should the job run in bg or fg? */
     pid_t pid;           /* Process id */
     
-    /*-------------따옴표, 백틱 제거----------------*/
-    for (int i = 0; i < strlen(cmdline); i++) {
-    if (cmdline[i] == '\'') 
-      single_quote_idx[single_quote_cnt++] = i;
-    else if (cmdline[i] == '\"') 
-      double_quote_idx[double_quote_cnt++] = i;
-    else if (cmdline[i] == '`')
-        bt_idx[bt_cnt++] = i;
-    }
-
-    if((single_quote_cnt % 2) == 0 &&single_quote_cnt != 0) {
-    for (int i = 0; i < single_quote_cnt; i++) {
-      cmdline[single_quote_idx[i]] = ' ';
-        }
-    }
-
-    if((double_quote_cnt % 2) == 0 && double_quote_cnt != 0) {
-    for (int i = 0; i < double_quote_cnt; i++) {
-      cmdline[double_quote_idx[i]] = ' ';
-        }
-    }
-
-    if((bt_cnt % 2) == 0 && bt_cnt != 0) {
-    for (int i = 0; i < bt_cnt; i++) {
-      cmdline[bt_idx[i]] = ' ';
-    }
-  }
-  /*-------------따옴표, 백틱 제거----------------*/
 
     strcpy(buf, cmdline);
     bg = parseline(buf, argv);
     
     /*argv의 인자 구하기*/
+    argc = 0;
     while (argv[argc] != NULL) {
     argc++;
     }
@@ -88,6 +57,8 @@ void eval(char *cmdline)
 
     if (argv[0] == NULL)  
 	return;   /* Ignore empty lines */
+
+
     if (!builtin_command(argv)) { //quit -> exit(0), & -> ignore, other -> run
         char b_path[50] = "/bin/";
         strcat(b_path, argv[0]);
@@ -172,3 +143,39 @@ int parseline(char *buf, char **argv)
     return bg;
 }
 /* $end parseline */
+
+/* $begin delete_bt_quote */
+/* delete_bt_quote - cmdline에서 백틱과 큰따옴표 제거 */
+const char* delete_quote(char cmdline[])
+{
+    int single_quote_cnt = 0;
+    int double_quote_cnt = 0;
+    
+    int single_quote_idx[MAXARGS];
+    int double_quote_idx[MAXARGS];
+
+    /*-------------따옴표, 백틱 제거----------------*/
+    for (int i = 0; i < strlen(cmdline); i++) {
+    if (cmdline[i] == '\'') 
+      single_quote_idx[single_quote_cnt++] = i;
+    else if (cmdline[i] == '\"') 
+      double_quote_idx[double_quote_cnt++] = i;
+
+    if((single_quote_cnt % 2) == 0 &&single_quote_cnt != 0) {
+    for (int i = 0; i < single_quote_cnt; i++) {
+      cmdline[single_quote_idx[i]] = ' ';
+        }
+    }
+
+    if((double_quote_cnt % 2) == 0 && double_quote_cnt != 0) {
+    for (int i = 0; i < double_quote_cnt; i++) {
+      cmdline[double_quote_idx[i]] = ' ';
+        }
+    }
+  }
+
+  return cmdline;
+  /*-------------따옴표, 백틱 제거----------------*/
+}
+
+/* $end delete_bt_quote*/

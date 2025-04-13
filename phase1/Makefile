@@ -2,11 +2,12 @@ CC = gcc
 CFLAGS = -Og
 LDLIBS = -lpthread
 
-PROGS = shellex
+PROGS = myShell
 
 all: $(PROGS)
 
-shellex: shellex.c csapp.c
+myShell: myshell.c csapp.c
+	$(CC) $(CFLAGS) -o myShell myshell.c csapp.c $(LDLIBS)
 
 clean:
 	rm -rf *~ $(PROGS)

@@ -1,12 +1,9 @@
 /* $begin shellmain */
 #include "csapp.h"
+#include "myshell.h"
 #include<errno.h>
 #define MAXARGS   128
 
-/* Function prototypes */
-void eval(char *cmdline);
-int parseline(char *buf, char **argv);
-int builtin_command(char **argv); 
 
 int main() 
 {
@@ -172,3 +169,49 @@ int parseline(char *buf, char **argv)
     return bg;
 }
 /* $end parseline */
+
+/* $begin delete_bt_quote */
+/* delete_bt_quote - cmdline에서 백틱과 큰따옴표 제거 */
+const char* delete_quote(char cmdline[])
+{
+    int single_quote_cnt = 0;
+    int double_quote_cnt = 0;
+    int bt_cnt = 0;
+    
+    int single_quote_idx[MAXARGS];
+    int double_quote_idx[MAXARGS];
+    int bt_idx[MAXARGS];
+
+    /*-------------따옴표, 백틱 제거----------------*/
+    for (int i = 0; i < strlen(cmdline); i++) {
+    if (cmdline[i] == '\'') 
+      single_quote_idx[single_quote_cnt++] = i;
+    else if (cmdline[i] == '\"') 
+      double_quote_idx[double_quote_cnt++] = i;
+    else if (cmdline[i] == '`')
+        bt_idx[bt_cnt++] = i;
+    }
+
+    if((single_quote_cnt % 2) == 0 &&single_quote_cnt != 0) {
+    for (int i = 0; i < single_quote_cnt; i++) {
+      cmdline[single_quote_idx[i]] = ' ';
+        }
+    }
+
+    if((double_quote_cnt % 2) == 0 && double_quote_cnt != 0) {
+    for (int i = 0; i < double_quote_cnt; i++) {
+      cmdline[double_quote_idx[i]] = ' ';
+        }
+    }
+
+    if((bt_cnt % 2) == 0 && bt_cnt != 0) {
+    for (int i = 0; i < bt_cnt; i++) {
+      cmdline[bt_idx[i]] = ' ';
+    }
+  }
+
+  return cmdline;
+  /*-------------따옴표, 백틱 제거----------------*/
+}
+
+/* $end delete_bt_quote*/

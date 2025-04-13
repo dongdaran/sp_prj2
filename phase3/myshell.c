@@ -8,8 +8,7 @@
 
 int main() 
 {   
-    char *cmdline[MAXCMDS][MAXARGS]; /* Command line */
-    int num_cmds = 0;
+    char cmdline[MAXLINE];
 
     while (1) {
 	/* Read */
@@ -39,7 +38,16 @@ void eval(char *cmdline)
     char buf[MAXLINE];   /* Holds modified command line */
     int bg;              /* Should the job run in bg or fg? */
     pid_t pid;           /* Process id */
+    char *cmds[MAXCMDS][MAXARGS]; /* Command line */
+    int num_cmds = 0;
     
+    /*PIPE*/
+    char *cmd_arg = strtok(cmdline, "|");
+    while(cmd_arg && num_cmds < MAXCMDS){
+        strcpy(cmds[num_cmds++], cmd_arg);
+        cmd_arg = strtok(NULL, "|");
+    }
+
     /*-------------따옴표, 백틱 제거----------------*/
     for (int i = 0; i < strlen(cmdline); i++) {
     if (cmdline[i] == '\'') 

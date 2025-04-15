@@ -13,6 +13,20 @@ int main()
 {
     char cmdline[MAXLINE]; /* Command line */
 
+    /*background 설정*/
+    job_num = 0;
+    /* signal 설정 */
+    Signal(SIGCHLD, sigchld_handler);
+    Signal(SIGINT, sigint_handler);
+    Signal(SIGTSTP, sigtstp_handler);
+
+
+    Sigemptyset(&mask);
+    Sigaddset(&mask, SIGINT);
+    Sigaddset(&mask,SIGTSTP);
+    Sigprocmask(SIG_BLOCK, &mask, &prev);
+
+
     while (1) {
 	/* Read */
 	printf("CSE4100-SP-P2> ");                   
@@ -40,12 +54,6 @@ void eval(char *cmdline)
     char buf[MAXLINE];   /* Holds modified command line */
     int bg;              /* Should the job run in bg or fg? */
     pid_t pid;           /* Process id */
-    sigset_t mask, prev;
-
-    /* signal 설정 */
-    Signal(SIGCHLD, sigchld_handler);
-    Signal(SIGINT, sigint_handler);
-    Signal(SIGTSTP, sigtstp_handler);
 
     /*-------------따옴표, 백틱 제거----------------*/
     for (int i = 0; i < strlen(cmdline); i++) {
@@ -108,11 +116,11 @@ void eval(char *cmdline)
         char path[50] = "/bin/";
         strcat(path, argv[0]);
 
-        Sigemptyset(&mask);
-        Sigaddset(&mask, SIGCHLD);
-        sigprocmask(SIG_BLOCK, &mask, &prev);
-
+        
         if((pid =Fork())==0){
+
+            setpgid(0,0);
+            sigprocmask(SIG_SETMASK, &prev,NULL);
 
             if(pipe_flag)
             {
@@ -130,6 +138,9 @@ void eval(char *cmdline)
         }
 	/* Parent waits for foreground job to terminate */
     else{
+    add_job(pid, bg ? 'B' : 'F', cmdline);  // background 또는 foreground job 생성
+    sigprocmask(SIG_SETMASK, &prev,NULL);
+
 	if (!bg){ 
 	    int status;
         Waitpid(pid, &status, 0);
@@ -139,16 +150,17 @@ void eval(char *cmdline)
     }
     /*backgorundprocess*/
 	else
-    {   
+    {    
         if(pid > 0){
             int jid;
 
             for(int i =0; i< MAXJOBS; i++){
                 if(job_list[i].pid ==pid)
-                    jid = job_list[i].jid
+                    jid = job_list[i].jid;
             }
+            printf("[%d] %d %s", jid, pid, cmdline);
         }
-        printf("%d %s", pid, cmdline);
+        
     }
         
 	    
@@ -182,8 +194,8 @@ int builtin_command(char **argv)
     }
 
     if (!strcmp(argv[0], "jobs")) {
-    excute_jobs();
-    return 1;
+        list_jobs();
+        return 1;
     }
 
     if (!strcmp(argv[0], "bg")) {
@@ -322,29 +334,157 @@ void init_jobs()
 {
 
     for (int i = 0; i < MAXJOBS; i++) {  // job 목록 초기화
-    job_list[i].jid = 0;
-    job_list[i].state = 0;
+    job_list[i].jid = -1;
+    job_list[i].state = -1;
     job_list[i].cmdline[0] = '\n';
-    job_list[i].pid = 0;
+    job_list[i].pid = -1;
   }
 
 }
 
 void sigchld_handler(int sig)
 {
+    while(waitpid(-1,NULL,WNOHANG) > 0);
+}
+
+void sigint_handler(int sig)
+{   
+    pid_t fg_pid = find_fg();
+    printf("\n");
+    if(fg_pid!=-1){
+    Kill(-fg_pid, SIGINT); /* sned signal to terminate */
+    sleep(1);
+    }
 
 }
-void sigint_handler(int sig);
-void sigtstp_handler(int sig);
+void sigtstp_handler(int sig)
+{
+    pid_t fg_pid = find_fg();
+    printf("\n");
+
+    if(fg_pid!=-1){
+        job_t *fg_job = find_job_by_pid(fg_pid);
+
+        if(fg_job !=NULL)
+            fg_job->state = 'S';
+        
+        Kill(-fg_pid, SIGTSTP);
+    }
+}
 
 
 
-void list_jobs();
-void change_state(char **argv, char flag);
-pid_t fg_job();
+void list_jobs()
+{
+    for (int i = 0; i < MAXJOBS; i++) {
+    if (job_list[i].jid != -1) {
+        if (job_list[i].state == 'B') {
+            printf("[%d] (%d) Running- %s", job_list[i].jid, job_list[i].pid,
+                   job_list[i].cmdline);
+        } else if (job_list[i].state == 'F') {
+            printf("[%d] (%d) Running+ %s", job_list[i].jid, job_list[i].pid,
+                   job_list[i].cmdline);
+        } else if (job_list[i].state == 'S') {
+            printf("[%d] (%d) Stopped %s", job_list[i].jid, job_list[i].pid,
+                   job_list[i].cmdline);
+        }
+        }
+    }
+}
 
-void add_job(pid_t pid, char state, char *cmdline);
-void delete_job(pid_t pid);
-job_t *find_job_by_jid(int jid);
-job_t *find_job_by_pid(pid_t pid);
+void change_state(char **argv, char flag) {
+    job_t *cur = NULL;
+    int jid;
+
+    if (argv[1] != NULL) {
+        if (argv[1][0] == '%') {
+            int jid = atoi(&argv[1][1]);
+            cur = find_job_by_jid(jid);
+        } else if (isdigit(argv[1][0])) {
+            int pid = atoi(argv[1]);
+            cur = find_job_by_pid(pid);
+        }
+    }
+
+    if (cur == NULL) return;
+
+    if (flag == 'B') {
+        change_job_state(cur, 'B');
+    } else if (flag == 'F') {
+        change_job_state(cur, 'F');
+    }
+}
+
+
+void change_job_state(job_t *cur, char state) {
+  cur->state = state;  
+  Kill(-(cur->pid), SIGCONT);  
+}
+
+pid_t find_fg()
+{   
+    for (int i = 0; i < MAXJOBS; i++) {
+    if (job_list[i].state == 'F') {  // 실행 중인 프로세스를 찾은 경우
+      return job_list[i].pid;
+        }
+    }
+}
+
+void add_job(pid_t pid, char state, char *cmdline)
+{
+    if(pid<=0)
+        return;
+    
+    for(int i=0; i<MAXJOBS; i++){
+        if(job_list[i].jid == -1){
+            job_list[i].jid = job_id++;
+            job_list[i].state = state;
+            strcpy(job_list[i].cmdline, cmdline);
+            job_list[i].pid = pid;
+            break;
+        }
+    }
+
+    return;
+}
+void delete_job(pid_t pid)
+{
+    if(pid <=0)
+        return;
+
+    for(int i=0; i<MAXJOBS; i++){
+        if(job_list[i].pid == pid){
+            job_list[i].jid = -1;
+            job_list[i].state = -1;
+            job_list[i].cmdline[0] = '\n';
+            job_list[i].pid = -1;
+            break;
+        }
+    }
+}
+job_t *find_job_by_jid(int jid)
+{
+    if(jid<=0)
+        return NULL;
+    
+    for(int i=0; i< MAXJOBS; i++){
+        if(job_list[i].jid == jid)
+            return &job_list[i];
+    }
+
+    return NULL;
+}
+
+job_t *find_job_by_pid(pid_t pid)
+{
+    if(pid<=0)
+        return NULL;
+    
+    for(int i=0; i< MAXJOBS; i++){
+        if(job_list[i].pid == pid)
+            return &job_list[i];
+    }
+
+    return NULL;
+}
 

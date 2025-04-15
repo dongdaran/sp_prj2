@@ -27,22 +27,30 @@ typedef struct job_t {
 int job_id = 1;      /* job에 부여될 id */
 job_t job_list[MAXJOBS]; /* job의 목록 */
 
+
 /* signal 처리 */
+sigset_t mask, prev;
 void sigchld_handler(int sig);
 void sigint_handler(int sig);
 void sigtstp_handler(int sig);
 /* signal 처리 */
 
 /* job 관리*/
+int job_num=0;
+
 void init_jobs();
 void list_jobs();
 void change_state(char **argv, char flag);
-pid_t fg_job();
+void change_job_state(job_t *cur, char state);
+pid_t find_fg();
 
 void add_job(pid_t pid, char state, char *cmdline);
 void delete_job(pid_t pid);
+
 job_t *find_job_by_jid(int jid);
 job_t *find_job_by_pid(pid_t pid);
+
+
 /* job 관리*/
 
 /* phase3 추가 */

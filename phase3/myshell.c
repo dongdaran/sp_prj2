@@ -130,32 +130,28 @@ void eval(char *cmdline)
         }
         /* Parent waits for foreground job to terminate */
         else {
+            setpgid(pid, pid);
             if(!bg)
                 add_job(pid,'F', cmdline);
             else
                 add_job(pid,'B', cmdline);
+
             sigprocmask(SIG_UNBLOCK, &mask, NULL);
 
             if (!bg) { 
                 int status;
                 Waitpid(pid, &status, 0);
 
-                if (WIFEXITED(status)) {
+                if (WIFEXITED(status) || WIFSIGNALED(status)) {
                     delete_job(pid);
                 }
-            } else {    
-                if (pid > 0 ) {
-                    int jid;
-
-                    for (int i = 0; i < MAXJOBS; i++) {
-                        if (job_list[i].pid == pid&&job_list[i].jid != -1)
-                            jid = job_list[i].jid;
-                            printf("%d %d", job_list[i].jid, jid);
-                            printf("[%d] %d %s", jid, pid, cmdline);
-                            break;
-                    }
-                    
+                else if(WIFSTOPPED(status)){
+                    job_t *job = find_job_by_pid(pid);
+                    if (job) job->state = 'S';
                 }
+            } else {    
+                job_t *job = find_job_by_pid(pid);
+                if (job) printf("[%d] (%d) %s", job->jid, pid, cmdline);
             }
         }
     }
@@ -163,25 +159,14 @@ void eval(char *cmdline)
 }
 
 /* If first arg is a builtin command, run it and return true */
-int builtin_command(char **argv) 
+int builtin_command(char **argv)
 {
-    if (!strcmp(argv[0], "quit")) /* quit command */
-        exit(0);  
-    if (!strcmp(argv[0], "exit")) /* exit command */
-        exit(0);         
-    if (!strcmp(argv[0], "&"))    /* Ignore singleton & */
-        return 1;
-    if (!strcmp(argv[0], "cd")) {   
-        char *d_path;
-        if (argv[1] == NULL)
-            d_path = (char*)getenv("HOME");
-        else if (!strcmp(argv[1], ".."))
-            d_path = "..";
-        else
-            d_path = argv[1];
+    if (!strcmp(argv[0], "quit") || !strcmp(argv[0], "exit")) exit(0);
+    if (!strcmp(argv[0], "&")) return 1;
 
-        if (chdir(d_path) != 0)
-            printf("Error : invalid path");
+    if (!strcmp(argv[0], "cd")) {
+        char *d_path = (argv[1] == NULL) ? getenv("HOME") : argv[1];
+        if (chdir(d_path) != 0) printf("Error : invalid path\n");
         return 1;
     }
 
@@ -191,35 +176,53 @@ int builtin_command(char **argv)
     }
 
     if (!strcmp(argv[0], "bg")) {
-        change_state(argv, 'B');
+        job_t *job = NULL;
+        if (argv[1][0] == '%') job = find_job_by_jid(atoi(&argv[1][1]));
+        else if (isdigit(argv[1][0])) job = find_job_by_pid(atoi(argv[1]));
+
+        if (job && job->state == 'S') {
+            job->state = 'B';
+            Kill(-(job->pid), SIGCONT);
+        }
         return 1;
     }
 
     if (!strcmp(argv[0], "fg")) {
-        change_state(argv, 'F');
+        job_t *job = NULL;
+        if (argv[1][0] == '%') job = find_job_by_jid(atoi(&argv[1][1]));
+        else if (isdigit(argv[1][0])) job = find_job_by_pid(atoi(argv[1]));
+
+        if (job) {
+            job->state = 'F';
+            Kill(-(job->pid), SIGCONT);
+
+            sigprocmask(SIG_UNBLOCK, &prev, NULL);
+
+            int status;
+            Waitpid(job->pid, &status, WUNTRACED);
+
+            if (WIFSTOPPED(status)) job->state = 'S';
+            else delete_job(job->pid);
+        }
         return 1;
     }
 
     if (!strcmp(argv[0], "kill")) {
-        job_t *cur;
+        job_t *job = NULL;
+        if (argv[1][0] == '%') job = find_job_by_jid(atoi(&argv[1][1]));
+        else if (isdigit(argv[1][0])) job = find_job_by_pid(atoi(argv[1]));
 
-        if (argv[1][0] == '%') {
-            int jid = atoi(&argv[1][1]);
-
-            if ((cur = find_job_by_jid(jid)) != NULL) {
-                Kill(cur->pid, SIGKILL);
-            }
-        } else if (isdigit(argv[1][0])) {
-            int pid = atoi(argv[1]);
-
-            if ((cur = find_job_by_pid(pid)) != NULL) {
-                Kill(cur->pid, SIGKILL);
-            }
+        if (job) {
+            Kill(job->pid, SIGKILL);
+            job->state = 'T';
         }
+        return 1;
     }
 
-    return 0;  /* Not a builtin command */
+    return 0;
 }
+
+
 
 /* $end eval */
 
@@ -324,35 +327,33 @@ void excutepipe(char *parent_cmd[], char *child_cmd[]) {
 }
 
 
-void sigchld_handler(int sig)
-{
-    while(waitpid(-1, NULL, WNOHANG) > 0);
-}
-
-void sigint_handler(int sig)
-{   
-    pid_t fg_pid = find_fg();
-    printf("\n");
-    if (fg_pid != -1) {
-        Kill(-fg_pid, SIGINT); /* send signal to terminate */
-        sleep(1);
+void sigchld_handler(int sig) {
+    int status;
+    pid_t pid;
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
+        if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            job_t *job = find_job_by_pid(pid);
+            if (job && job->state != 'T') delete_job(pid);
+        }
     }
 }
 
-void sigtstp_handler(int sig)
-{
+void sigint_handler(int sig) {
     pid_t fg_pid = find_fg();
-    printf("\n");
+    if (fg_pid != -1) Kill(-fg_pid, SIGINT);
+}
 
+void sigtstp_handler(int sig) {
+    pid_t fg_pid = find_fg();
     if (fg_pid != -1) {
-        job_t *fg_job = find_job_by_pid(fg_pid);
-
-        if (fg_job != NULL)
-            fg_job->state = 'S';
-        
+        job_t *job = find_job_by_pid(fg_pid);
+        if (job) job->state = 'S';
         Kill(-fg_pid, SIGTSTP);
+        
     }
 }
+
+
 
 void list_jobs()
 {
@@ -360,10 +361,10 @@ void list_jobs()
         if (job_list[i].jid != -1) {
             if (job_list[i].state == 'B') {
                 printf("[%d]- (%d) Running %s", job_list[i].jid, job_list[i].pid, job_list[i].cmdline);
-            } else if (job_list[i].state == 'F') {
-                printf("[%d]+ (%d) Running %s", job_list[i].jid, job_list[i].pid, job_list[i].cmdline);
             } else if (job_list[i].state == 'S') {
                 printf("[%d] (%d) Stopped %s", job_list[i].jid, job_list[i].pid, job_list[i].cmdline);
+            } else if (job_list[i].state == 'T') {
+                printf("[%d] (%d) Terminated %s", job_list[i].jid, job_list[i].pid, job_list[i].cmdline);
             }
         }
     }

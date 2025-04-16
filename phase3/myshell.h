@@ -47,7 +47,7 @@ void delete_job(pid_t pid);
 job_t *find_job_by_jid(int jid);
 job_t *find_job_by_pid(pid_t pid);
 
-
+pid_t shell_pgid;
 /* job 관리*/
 
 /* phase3 추가 */

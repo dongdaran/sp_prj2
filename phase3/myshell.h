@@ -24,7 +24,7 @@ typedef struct job_t {
     char cmdline[MAXLINE];  /* Command line */
 } job_t;
 
-int job_id = 1;      /* job에 부여될 id */
+int job_id;      /* job에 부여될 id */
 job_t job_list[MAXJOBS]; /* job의 목록 */
 
 
@@ -34,9 +34,6 @@ void sigchld_handler(int sig);
 void sigint_handler(int sig);
 void sigtstp_handler(int sig);
 /* signal 처리 */
-
-/* job 관리*/
-int job_num=0;
 
 void init_jobs();
 void list_jobs();

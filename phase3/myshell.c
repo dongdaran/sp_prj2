@@ -30,10 +30,10 @@ int main()
         printf("CSE4100-SP-P2> ");
         if(fgets(cmdline, MAXLINE, stdin)==NULL)
         { 
-        if (feof(stdin))
-            exit(0);
-        else 
-            unix_error("fgets error");
+            if (feof(stdin))
+                exit(0);
+            else 
+                unix_error("fgets error");
         }
         /* Evaluate */
         eval(cmdline);
@@ -143,16 +143,17 @@ void eval(char *cmdline)
                 Waitpid(pid, &status, 0);
 
                 if (WIFEXITED(status) || WIFSIGNALED(status)) {
-                    job_t *job = find_job_by_pid(pid);
-                    if(job)
+                    if(WIFSTOPPED(status)){
+                        job_t *job = find_job_by_pid(pid);
+                        if (job) {
+                            job->state = 'S';
+                            Kill(job->pid, SIGSTOP);
+                        }
+                    } else {
                         delete_job(pid);
+                    }
                 }
-                else if(WIFSTOPPED(status)){
-                    job_t *job = find_job_by_pid(pid);
-                    if(job)
-                        job->state = 'S';
-                }
-            } else {    //background 일때
+            } else {    
                 job_t *job = find_job_by_pid(pid);
                 if (job) printf("[%d] (%d) %s", job->jid, pid, cmdline);
             }
@@ -357,6 +358,7 @@ void sigtstp_handler(int sig) {
     if (fg_pid != -1) {
         job_t *job = find_job_by_pid(fg_pid);  // 해당 PID로 job 찾기
         if (job) {
+            job->state = 'S';  // 상태를 'Stopped'로 변경
             Kill(-fg_pid, SIGTSTP);  // 프로세스를 SIGTSTP로 중지
         }
     }
@@ -367,7 +369,7 @@ void list_jobs()
     for (int i = 0; i < MAXJOBS; i++) {
         if (job_list[i].jid != -1) {
             if (job_list[i].state == 'B') {
-                printf("[%d] (%d) Running %s", job_list[i].jid, job_list[i].pid, job_list[i].cmdline);
+                printf("[%d]- (%d) Running %s", job_list[i].jid, job_list[i].pid, job_list[i].cmdline);
             } else if (job_list[i].state == 'S') {
                 printf("[%d] (%d) Stopped %s", job_list[i].jid, job_list[i].pid, job_list[i].cmdline);
             } else if (job_list[i].state == 'T') {
@@ -407,7 +409,7 @@ void change_job_state(job_t *cur, char state) {
 pid_t find_fg()
 {   
     for (int i = 0; i < MAXJOBS; i++) {
-        if (job_list[i].state == 'F') {  // 포그라운드 또는 Stopped 상태의 작업
+        if (job_list[i].state == 'F' || job_list[i].state == 'S') {  // 포그라운드 또는 Stopped 상태의 작업
             return job_list[i].pid;
         }
     }

@@ -143,13 +143,16 @@ void eval(char *cmdline)
                 Waitpid(pid, &status, 0);
 
                 if (WIFEXITED(status) || WIFSIGNALED(status)) {
-                    delete_job(pid);
+                    job_t *job = find_job_by_pid(pid);
+                    if(job)
+                        delete_job(pid);
                 }
                 else if(WIFSTOPPED(status)){
                     job_t *job = find_job_by_pid(pid);
-                    if (job) job->state = 'S';
+                    if(job)
+                        job->state = 'S';
                 }
-            } else {    
+            } else {    //background 일때
                 job_t *job = find_job_by_pid(pid);
                 if (job) printf("[%d] (%d) %s", job->jid, pid, cmdline);
             }
@@ -331,9 +334,15 @@ void sigchld_handler(int sig) {
     int status;
     pid_t pid;
     while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
+        job_t *job = find_job_by_pid(pid);
         if (WIFEXITED(status) || WIFSIGNALED(status)) {
-            job_t *job = find_job_by_pid(pid);
+            
             if (job && job->state != 'T') delete_job(pid);
+        }
+        else if (WIFSTOPPED(status)) {  // 프로세스가 STOPPED 상태로 변경된 경우
+            if (job) {
+                job->state = 'S';  // Stopped 상태로 변경
+            }
         }
     }
 }
@@ -344,23 +353,21 @@ void sigint_handler(int sig) {
 }
 
 void sigtstp_handler(int sig) {
-    pid_t fg_pid = find_fg();
+    pid_t fg_pid = find_fg();  // 현재 포그라운드 프로세스 ID 확인
     if (fg_pid != -1) {
-        job_t *job = find_job_by_pid(fg_pid);
-        if (job) job->state = 'S';
-        Kill(-fg_pid, SIGTSTP);
-        
+        job_t *job = find_job_by_pid(fg_pid);  // 해당 PID로 job 찾기
+        if (job) {
+            Kill(-fg_pid, SIGTSTP);  // 프로세스를 SIGTSTP로 중지
+        }
     }
 }
-
-
 
 void list_jobs()
 {
     for (int i = 0; i < MAXJOBS; i++) {
         if (job_list[i].jid != -1) {
             if (job_list[i].state == 'B') {
-                printf("[%d]- (%d) Running %s", job_list[i].jid, job_list[i].pid, job_list[i].cmdline);
+                printf("[%d] (%d) Running %s", job_list[i].jid, job_list[i].pid, job_list[i].cmdline);
             } else if (job_list[i].state == 'S') {
                 printf("[%d] (%d) Stopped %s", job_list[i].jid, job_list[i].pid, job_list[i].cmdline);
             } else if (job_list[i].state == 'T') {
@@ -400,11 +407,11 @@ void change_job_state(job_t *cur, char state) {
 pid_t find_fg()
 {   
     for (int i = 0; i < MAXJOBS; i++) {
-        if (job_list[i].state == 'F') {  
+        if (job_list[i].state == 'F') {  // 포그라운드 또는 Stopped 상태의 작업
             return job_list[i].pid;
         }
     }
-    return -1;  // 포그라운드 프로세스가 없을 경우
+    return -1;  // 포그라운드 작업이 없을 경우
 }
 
 void init_jobs()

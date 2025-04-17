@@ -1,13 +1,7 @@
-/* $begin shellmain */
 #include "csapp.h"
 #include "myshell.h"
 #include <errno.h>
 #define MAXARGS 128
-
-/* Function prototypes */
-void eval(char *cmdline);
-int parseline(char *buf, char **argv);
-int builtin_command(char **argv); 
 
 int main() 
 {
@@ -39,10 +33,7 @@ int main()
         eval(cmdline);
     } 
 }
-/* $end shellmain */
 
-/* $begin eval */
-/* eval - Evaluate a command line */
 void eval(char *cmdline) 
 {
     int single_quote_cnt = 0;
@@ -51,12 +42,12 @@ void eval(char *cmdline)
     int single_quote_idx[MAXARGS];
     int double_quote_idx[MAXARGS];
     int bt_idx[MAXARGS];
-    char *argv[MAXARGS]; /* Argument list execve() */
-    char buf[MAXLINE];   /* Holds modified command line */
-    int bg;              /* Should the job run in bg or fg? */
-    pid_t pid;           /* Process id */
+    char *argv[MAXARGS];
+    char buf[MAXLINE];
+    int bg;
+    pid_t pid;
 
-    /*-------------따옴표, 백틱 제거----------------*/
+    /* 따옴표, 백틱 처리 */
     for (int i = 0; i < strlen(cmdline); i++) {
         if (cmdline[i] == '|')
             pipe_flag = 1;
@@ -85,11 +76,10 @@ void eval(char *cmdline)
             cmdline[bt_idx[i]] = ' ';
         }
     }
-    /*-------------따옴표, 백틱 제거----------------*/
 
-    /*-------------백틱 파이프화-------------------*/
+    /* 백틱 파이프화 */
     if ((bt_cnt % 2) == 0 && bt_cnt != 0) {
-        pipe_flag = 1; // echo `ls -al` `ls` -> echo | ls -al | ls 동일한 결과
+        pipe_flag = 1;
 
         for (int i = 0; i < bt_cnt; i += 2) {
             cmdline[bt_idx[i]] = '|';
@@ -101,15 +91,14 @@ void eval(char *cmdline)
             cmdline[bt_idx[i] + 1] = ' ';  
         }
     }
-    /*----------------백틱 파이프화-------------------*/
 
     strcpy(buf, cmdline);
     bg = parseline(buf, argv);
 
     if (argv[0] == NULL)  
-        return;   /* Ignore empty lines */
+        return;
 
-    if (!builtin_command(argv)) { // quit -> exit(0), & -> ignore, other -> run
+    if (!builtin_command(argv)) {
         char path[50] = "/bin/";
         strcat(path, argv[0]);
 
@@ -128,7 +117,6 @@ void eval(char *cmdline)
                 exit(0);
             }
         }
-        /* Parent waits for foreground job to terminate */
         else {
             setpgid(pid, pid);
             if(!bg)
@@ -140,29 +128,23 @@ void eval(char *cmdline)
 
             if (!bg) { 
                 int status;
-                Waitpid(pid, &status, 0);
+                pid_t wpid = Waitpid(pid, &status, WUNTRACED);
 
-                if (WIFEXITED(status) || WIFSIGNALED(status)) {
-                    if(WIFSTOPPED(status)){
-                        job_t *job = find_job_by_pid(pid);
-                        if (job) {
-                            job->state = 'S';
-                            Kill(job->pid, SIGSTOP);
-                        }
-                    } else {
-                        delete_job(pid);
-                    }
+                if (WIFSTOPPED(status)) {
+                    job_t *job = find_job_by_pid(pid);
+                    if (job) job->state = 'S';
+                } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
+                    delete_job(pid);
                 }
             } else {    
                 job_t *job = find_job_by_pid(pid);
-                if (job) printf("[%d] (%d) %s", job->jid, pid, cmdline);
+                if (job) printf("[%d] %d\n", job->jid, pid);
             }
         }
     }
     return;
 }
 
-/* If first arg is a builtin command, run it and return true */
 int builtin_command(char **argv)
 {
     if (!strcmp(argv[0], "quit") || !strcmp(argv[0], "exit")) exit(0);
@@ -200,8 +182,6 @@ int builtin_command(char **argv)
             job->state = 'F';
             Kill(-(job->pid), SIGCONT);
 
-            sigprocmask(SIG_UNBLOCK, &prev, NULL);
-
             int status;
             Waitpid(job->pid, &status, WUNTRACED);
 
@@ -226,43 +206,34 @@ int builtin_command(char **argv)
     return 0;
 }
 
-
-
-/* $end eval */
-
-/* $begin parseline */
-/* parseline - Parse the command line and build the argv array */
 int parseline(char *buf, char **argv) 
 {
-    char *delim;         /* Points to first space delimiter */
-    int argc;            /* Number of args */
-    int bg;              /* Background job? */
+    char *delim;
+    int argc;
+    int bg;
 
-    buf[strlen(buf)-1] = ' ';  /* Replace trailing '\n' with space */
-    while (*buf && (*buf == ' ')) /* Ignore leading space -> 앞에 있는 공백 삭제 */
+    buf[strlen(buf)-1] = ' ';
+    while (*buf && (*buf == ' '))
         buf++;
 
-    /* Build the argv list */
     argc = 0;
     while ((delim = strchr(buf, ' '))) {
         argv[argc++] = buf;
-        *delim = '\0'; // 문자열 나누기 
+        *delim = '\0';
         buf = delim + 1;
-        while (*buf && (*buf == ' ')) /* Ignore spaces */
+        while (*buf && (*buf == ' '))
                 buf++;
     }
-    argv[argc] = NULL; // 끝에 NULL 설정
+    argv[argc] = NULL;
     
-    if (argc == 0)  /* Ignore blank line */
+    if (argc == 0)
         return 1;
 
-    /* Should the job run in the background? */
     if ((bg = (*argv[argc-1] == '&')) != 0)
         argv[--argc] = NULL;
 
     return bg;
 }
-/* $end parseline */
 
 void splitpipe(char **argv, char *parent_cmd[], char *child_cmd[]) {
     int pipe_idx = -1;
@@ -281,11 +252,9 @@ void splitpipe(char **argv, char *parent_cmd[], char *child_cmd[]) {
         for (int i = 0; argv[pipe_idx + i] != NULL; i++) {
             child_cmd[i] = argv[pipe_idx + i];
         }
-
         child_cmd[pipe_idx] = NULL;
     }
 }
-
 
 void excutepipe(char *parent_cmd[], char *child_cmd[]) {
     int fd[2];
@@ -330,20 +299,16 @@ void excutepipe(char *parent_cmd[], char *child_cmd[]) {
     }
 }
 
-
 void sigchld_handler(int sig) {
     int status;
     pid_t pid;
     while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
         job_t *job = find_job_by_pid(pid);
         if (WIFEXITED(status) || WIFSIGNALED(status)) {
-            
             if (job && job->state != 'T') delete_job(pid);
         }
-        else if (WIFSTOPPED(status)) {  // 프로세스가 STOPPED 상태로 변경된 경우
-            if (job) {
-                job->state = 'S';  // Stopped 상태로 변경
-            }
+        else if (WIFSTOPPED(status)) {
+            if (job) job->state = 'S';
         }
     }
 }
@@ -354,13 +319,9 @@ void sigint_handler(int sig) {
 }
 
 void sigtstp_handler(int sig) {
-    pid_t fg_pid = find_fg();  // 현재 포그라운드 프로세스 ID 확인
+    pid_t fg_pid = find_fg();
     if (fg_pid != -1) {
-        job_t *job = find_job_by_pid(fg_pid);  // 해당 PID로 job 찾기
-        if (job) {
-            job->state = 'S';  // 상태를 'Stopped'로 변경
-            Kill(-fg_pid, SIGTSTP);  // 프로세스를 SIGTSTP로 중지
-        }
+        Kill(-fg_pid, SIGTSTP);
     }
 }
 
@@ -369,57 +330,20 @@ void list_jobs()
     for (int i = 0; i < MAXJOBS; i++) {
         if (job_list[i].jid != -1) {
             if (job_list[i].state == 'B') {
-                printf("[%d]- (%d) Running %s", job_list[i].jid, job_list[i].pid, job_list[i].cmdline);
+                printf("[%d]  Running                 %s\n", job_list[i].jid, job_list[i].cmdline);
             } else if (job_list[i].state == 'S') {
-                printf("[%d] (%d) Stopped %s", job_list[i].jid, job_list[i].pid, job_list[i].cmdline);
+                printf("[%d]  Stopped                 %s\n", job_list[i].jid, job_list[i].cmdline);
             } else if (job_list[i].state == 'T') {
-                printf("[%d] (%d) Terminated %s", job_list[i].jid, job_list[i].pid, job_list[i].cmdline);
+                printf("[%d]  Terminated                 %s\n", job_list[i].jid, job_list[i].cmdline);
             }
         }
     }
 }
 
-void change_state(char **argv, char flag) {
-    job_t *cur = NULL;
-
-    if (argv[1] != NULL) {
-        if (argv[1][0] == '%') {
-            int jid = atoi(&argv[1][1]);
-            cur = find_job_by_jid(jid);
-        } else if (isdigit(argv[1][0])) {
-            int pid = atoi(argv[1]);
-            cur = find_job_by_pid(pid);
-        }
-    }
-
-    if (cur == NULL) return;
-
-    if (flag == 'B') {
-        change_job_state(cur, 'B');
-    } else if (flag == 'F') {
-        change_job_state(cur, 'F');
-    }
-}
-
-void change_job_state(job_t *cur, char state) {
-    cur->state = state;  
-    Kill(-(cur->pid), SIGCONT);  
-}
-
-pid_t find_fg()
-{   
-    for (int i = 0; i < MAXJOBS; i++) {
-        if (job_list[i].state == 'F' || job_list[i].state == 'S') {  // 포그라운드 또는 Stopped 상태의 작업
-            return job_list[i].pid;
-        }
-    }
-    return -1;  // 포그라운드 작업이 없을 경우
-}
-
 void init_jobs()
 {   
     job_id = 1;
-    for (int i = 0; i < MAXJOBS; i++) {  // job 목록 초기화
+    for (int i = 0; i < MAXJOBS; i++) {
         job_list[i].jid = -1;
         job_list[i].state = -1;
         job_list[i].cmdline[0] = '\n';
@@ -433,13 +357,14 @@ void add_job(pid_t pid, char state, char *cmdline)
         return;
     
     for (int i = 0; i < MAXJOBS; i++) {
-        if (job_list[i].jid == -1) {  // 빈 슬롯을 찾으면
-            job_list[i].jid = job_id++;  // 새로운 작업 ID 할당
-            if (job_id > MAXJOBS) {  // MAXJOBS를 초과하면 다시 1로 초기화
+        if (job_list[i].jid == -1) {
+            job_list[i].jid = job_id++;
+            if (job_id > MAXJOBS) {
                 job_id = 1;
             }
             job_list[i].state = state;
             strcpy(job_list[i].cmdline, cmdline);
+            job_list[i].cmdline[strlen(cmdline)-1] = '\0';
             job_list[i].pid = pid;
             break;
         }
@@ -453,7 +378,6 @@ void delete_job(pid_t pid)
 
     for (int i = 0; i < MAXJOBS; i++) {
         if (job_list[i].pid == pid) {
-            printf("delete add job");
             job_list[i].jid = -1;
             job_list[i].state = -1;
             job_list[i].cmdline[0] = '\n';
@@ -472,7 +396,6 @@ job_t *find_job_by_jid(int jid)
         if (job_list[i].jid == jid)
             return &job_list[i];
     }
-
     return NULL;
 }
 
@@ -485,6 +408,15 @@ job_t *find_job_by_pid(pid_t pid)
         if (job_list[i].pid == pid)
             return &job_list[i];
     }
-
     return NULL;
+}
+
+pid_t find_fg()
+{   
+    for (int i = 0; i < MAXJOBS; i++) {
+        if (job_list[i].state == 'F' || job_list[i].state == 'S') {
+            return job_list[i].pid;
+        }
+    }
+    return -1;
 }
